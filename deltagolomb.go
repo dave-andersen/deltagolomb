@@ -11,9 +11,9 @@
  *
  * ints := make(chan int)
  * bytes := make(chan byte)
- * dg := NewExpGolombStream()
+ * eg := NewExpGolombStream()
  *
- * go dg.Decode(bytes, ints)
+ * go eg.Decode(bytes, ints)
  * go func() {
  *          bytes <- 0x40
  * }()
@@ -60,7 +60,7 @@ func (s *ExpGolombStream) Encode(in chan int, out chan byte) {
 
 // Decode a byte-stream of exp-golomb coded signed integers.
 // Reads all available bytes from 'in';
-// Emits decoded integers to 'out'
+// Emits decoded integers to 'out'.
 func (s *ExpGolombStream) Decode(in chan byte, out chan int) {
 	state := COUNTING_ZEROS
 	val := 0
@@ -85,7 +85,7 @@ func (s *ExpGolombStream) Decode(in chan byte, out chan int) {
 				val |= int(bit)
 				zeros--
 				if zeros == 0 {
-					val -= 1
+					val -= 1 // Because we stole bit for 0.
 					state = READING_SIGN
 				}
 			case READING_SIGN:
@@ -104,7 +104,7 @@ func (s *ExpGolombStream) Decode(in chan byte, out chan int) {
 // Exponential golomb coding with an explicit sign bit for everything
 // except zero.
 // 0 = 1
-// 1 = 010{sign}    sign:  0 = positive, 1 = negative
+// 1 = 010{sign}    sign:  0 = positive, 1 = negative.
 // 2 = 011{sign}
 // 3 = 00100{sign}
 // 4 = 00101{sign}
@@ -132,9 +132,9 @@ func (s *ExpGolombStream) Add(item int, out chan byte) {
 	}
 
 	uitem := uint(item)
-	uitem += 1 // we stole a bit for zero
+	uitem += 1 // we stole a bit for zero.
 	nbits := uint(bitLen(uitem) - 1)
-	//codelen := nbits * 2 + 1 + 1 // +1 for the separator, +1 for the sign bit
+	//codelen := nbits * 2 + 1 + 1 // +1 for the separator, +1 for the sign bit.
 	for i := uint(0); i < nbits; i++ {
 		s.addBit(0, out)
 	}
@@ -171,11 +171,11 @@ func bitLen(x uint) (n int) {
 	return
 }
 
-// Takes an array of integers.  Delta encodes them and then
-// uses Exp-Golomb to encode the residuals.  This stream of
-// residuals is returned as a byte array.
-// Uses the value of 'start' to encode the first value
-// as value-start.
+// Delta encodes an array of integers and then uses Exp-Golomb to
+// encode the residuals.  Returns the encoded byte stream of residuals
+// as a byte array.
+// DeltaEncode uses the value of 'start' to encode the first value
+// as value - start.
 func DeltaEncode(start int, data []int) []byte {
 
 	result := NewExpGolombStream()
@@ -193,6 +193,7 @@ func DeltaEncode(start int, data []int) []byte {
 		}
 		close(intchan)
 	}()
+
 	ret := make([]byte, 0)
 	for b := range bytestream {
 		ret = append(ret, b)
@@ -209,13 +210,16 @@ func DeltaDecode(base int, compressed []byte) []int {
 	bytechan := make(chan byte)
 	val := base
 	decoder := NewExpGolombStream()
+
 	go func() {
 		for _, b := range compressed {
 			bytechan <- b
 		}
 		close(bytechan)
 	}()
+
 	go decoder.Decode(bytechan, c)
+
 	for delta := range c {
 		val += delta
 		res = append(res, val)
