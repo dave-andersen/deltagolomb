@@ -49,3 +49,25 @@ func TestEncodeDecode(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkExpGEncode(b *testing.B) {
+	b.StopTimer()
+	in := make(chan int)
+	out := make(chan byte)
+	egs := NewExpGolombStream()
+	go egs.Encode(in, out)
+	go func() {
+		for _ = range out {
+			// discard
+		}
+	}()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		in <- 0
+		in <- 1
+		in <- -1
+		in <- 2
+		in <- -5
+	}
+	close(in)
+}
