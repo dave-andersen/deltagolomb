@@ -4,7 +4,7 @@
  * of integers, delta-encode them, and then encode the residuals
  * using Exp-Golomb.
  *
- * The core Exp-Golomb functions mirror that of pkg/compress:
+ * The core Exp-Golomb functions mirror those of pkg/compress:
  *
  * encoder := NewExpGolombEncoder(w)
  * encoder.Write([]int{0, 0, 1, 1})
