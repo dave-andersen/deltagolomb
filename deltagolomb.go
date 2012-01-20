@@ -37,7 +37,7 @@ type ExpGolombDecoder struct {
 type ExpGolombEncoder struct {
 	data   byte
 	bitpos uint
-	out io.Writer
+	out byteWriter
 }	
 
 // Create a new Exp-Golomb stream Encoder.
@@ -45,7 +45,8 @@ type ExpGolombEncoder struct {
 // the resulting byte stream to w.  Users must call Close()
 // when finished to ensure that all bytes are written to w.
 func NewExpGolombEncoder(w io.Writer) *ExpGolombEncoder {
-	return &ExpGolombEncoder{0, 0, w}
+	ww := makeWriter(w)
+	return &ExpGolombEncoder{0, 0, ww}
 }
 
 // Create a new Exp-Golomb stream decoder.  Callers can read
@@ -65,11 +66,27 @@ type byteReader interface {
 	ReadByte() (c byte, err error)
 }
 
+// Analogous helper for byte-at-a-time output.
+// If the passed in writer does not support WriteByte(),
+// wrap it in a bufio.
+type byteWriter interface {
+	io.Writer
+	WriteByte(c byte) error
+	Flush() error
+}
+
 func makeReader(r io.Reader) byteReader {
 	if rr, ok := r.(byteReader); ok {
 		return rr
 	}
 	return bufio.NewReader(r)
+}
+
+func makeWriter(w io.Writer) byteWriter {
+	if ww, ok := w.(byteWriter); ok {
+		return ww
+	}
+	return bufio.NewWriter(w)
 }
 
 // Decode states, bit-at-a-time (slow but safe)
@@ -91,11 +108,11 @@ func (s *ExpGolombEncoder) Write(ilist []int) {
 
 func (s *ExpGolombEncoder) Close() {
 	if (s.bitpos != 0) {
-		s.out.Write([]byte{s.data})
+		s.out.WriteByte(s.data)
 		s.data = 0
 		s.bitpos = 0
 	}
-	//s.out.Close()
+	s.out.Flush()
 }
 
 // Decode a byte-stream of exp-golomb coded signed integers.
@@ -207,7 +224,7 @@ func (s *ExpGolombEncoder) Add(item int) {
 // state.
 func (s *ExpGolombEncoder) addBit(bit uint) {
 	if s.bitpos == 8 {
-		s.out.Write([]byte{s.data})
+		s.out.WriteByte(s.data)
 		s.data = 0
 		s.bitpos = 0
 	}
