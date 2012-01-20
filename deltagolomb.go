@@ -22,16 +22,16 @@ package deltagolomb
 import (
 	"io"
 	"bytes"
+	"bufio"
 )
 
 type ExpGolombDecoder struct {
-	r io.Reader
+	r byteReader
 	b byte
 	state int
 	val int
 	zeros int
 	nBits int
-	readError error
 }
 
 type ExpGolombEncoder struct {
@@ -53,8 +53,23 @@ func NewExpGolombEncoder(w io.Writer) *ExpGolombEncoder {
 // from r as needed and as they become available.
 func NewExpGolombDecoder(r io.Reader) *ExpGolombDecoder{ 
 	d := &ExpGolombDecoder{}
-	d.r = r
+	d.r = makeReader(r)
 	return d
+}
+
+// Helper function stolen from compress/flate/inflate.go
+// If the passed in reader does not support ReadByte(), wrap
+// it in a bufio.
+type byteReader interface {
+	io.Reader
+	ReadByte() (c byte, err error)
+}
+
+func makeReader(r io.Reader) byteReader {
+	if rr, ok := r.(byteReader); ok {
+		return rr
+	}
+	return bufio.NewReader(r)
 }
 
 // Decode states, bit-at-a-time (slow but safe)
@@ -89,17 +104,14 @@ func (s *ExpGolombEncoder) Close() {
 func (s *ExpGolombDecoder) Read(out []int) (int, error) {
 	cpos := 0
 	n := len(out)
-	tmpbuf := make([]byte, 1)
 
 	for {
 		if (s.nBits == 0) {
-			if s.readError != nil {
-				return cpos, s.readError
-			}
-			nread := 0
-			nread, s.readError = s.r.Read(tmpbuf)
-			if nread == 1 {
-				s.b = tmpbuf[0]
+			var readError error
+			s.b, readError = s.r.ReadByte()
+			if readError != nil {
+				return cpos, readError
+			} else {
 				s.nBits = 8
 			}
 		}
