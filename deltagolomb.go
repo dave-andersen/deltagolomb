@@ -208,15 +208,34 @@ func (s *ExpGolombEncoder) Add(item int) {
 	uitem += 1 // we stole a bit for zero.
 	nbits := uint(bitLen(uitem) - 1)
 	//codelen := nbits * 2 + 1 + 1 // +1 for the separator, +1 for the sign bit.
-	for i := uint(0); i < nbits; i++ {
-		s.addBit(0)
-	}
+	s.addZeroBits(nbits)
 	s.addBit(1)
 	for i := uint(1); i <= nbits; i++ {
 		s.addBit((uitem>>(nbits-i))&0x01)
 	}
 	s.addBit(sign)
 	return
+}
+
+func (s *ExpGolombEncoder) addZeroBits(nzeros uint) {
+	// Split into three chunks:  Number of zeros we can add
+	// to the current byte;  number of intermediate zero bytes
+	// we should emit;  number of zeros to add to the new byte
+	// if any.
+	if nzeros < (8 - s.bitpos) {
+		s.bitpos += nzeros
+		return
+	} else {
+		nzeros -= (8 - s.bitpos)
+		s.out.WriteByte(s.data)
+		s.data = 0
+		s.bitpos = 0
+	}
+	// We now have a zero byte at bitpos 0.
+	for ; nzeros >= 8; nzeros -= 8 {
+		s.out.WriteByte(s.data)
+	}
+	s.bitpos += nzeros
 }
 
 // Helper function that adds one bit to our output byte stream.
