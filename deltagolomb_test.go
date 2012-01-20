@@ -3,6 +3,7 @@ package deltagolomb
 import (
 	"bytes"
 	"testing"
+	"io/ioutil"
 )
 
 type etest struct {
@@ -52,10 +53,9 @@ func TestEncodeDecode(t *testing.T) {
 
 func BenchmarkExpGEncode(b *testing.B) {
 	b.StopTimer()
-	in := make(chan int)
+	
 	out := make(chan byte)
-	egs := NewExpGolombStream()
-	go egs.Encode(in, out)
+	egs := NewExpGolombEncoder(ioutil.Discard)
 	go func() {
 		for _ = range out {
 			// discard
@@ -63,11 +63,7 @@ func BenchmarkExpGEncode(b *testing.B) {
 	}()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		in <- 0
-		in <- 1
-		in <- -1
-		in <- 2
-		in <- -5
+		egs.Write([]int{0, 1, -1, 2, -5})
 	}
-	close(in)
+	egs.Close()
 }

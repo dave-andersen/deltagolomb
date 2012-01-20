@@ -4,39 +4,57 @@
  * of integers, delta-encode them, and then encode the residuals
  * using Exp-Golomb.
  *
- * The core Exp-Golomb functions offer a channel interface that
- * emit/accept bytes on one channel and integers on the other
- * channel for encoding and decoding, respectively.  Example
- * use:
+ * The core Exp-Golomb functions mirror that of pkg/compress:
  *
- * ints := make(chan int)
- * bytes := make(chan byte)
- * eg := NewExpGolombStream()
+ * encoder := NewExpGolombEncoder(w)
+ * encoder.Write([]int{0, 0, 1, 1})
+ * // The encoder will call w.Write() as necessary.
  *
- * go eg.Decode(bytes, ints)
- * go func() {
- *          bytes <- 0x40
- * }()
- * for i := range ints {
- *          fmt.Println("Read an int:", i)
- * }
- * 
- * The channel interface is designed to make it easy to use in
- * streaming applications.
+ * decoder := NewExpGolombDecoder(r)
+ * decoder.Read(buf)
+ * // the decoder will call r.Read() as necessary.
  *
  * At present, this code is not optimized for speed.
  */
 
 package deltagolomb
 
-type ExpGolombStream struct {
-	data   byte
-	bitpos uint
+import (
+	"io"
+	"bytes"
+)
+
+type ExpGolombDecoder struct {
+	r io.Reader
+	b byte
+	state int
+	val int
+	zeros int
+	nBits int
+	readError error
 }
 
-// Create a new Exp-Golomb stream encoder/decoder object.
-func NewExpGolombStream() *ExpGolombStream {
-	return &ExpGolombStream{0, 0}
+type ExpGolombEncoder struct {
+	data   byte
+	bitpos uint
+	out io.Writer
+}	
+
+// Create a new Exp-Golomb stream Encoder.
+// Accepts integers via the Write( []int ) method, and writes
+// the resulting byte stream to w.  Users must call Close()
+// when finished to ensure that all bytes are written to w.
+func NewExpGolombEncoder(w io.Writer) *ExpGolombEncoder {
+	return &ExpGolombEncoder{0, 0, w}
+}
+
+// Create a new Exp-Golomb stream decoder.  Callers can read
+// decoded integers via the Read( []int ) method.  Reads bytes
+// from r as needed and as they become available.
+func NewExpGolombDecoder(r io.Reader) *ExpGolombDecoder{ 
+	d := &ExpGolombDecoder{}
+	d.r = r
+	return d
 }
 
 // Decode states, bit-at-a-time (slow but safe)
@@ -49,56 +67,82 @@ const (
 // Encode a stream of signed integers into a byte stream.
 // Reads all available ints from 'in';
 // Emits encoded bytes to 'out'
-func (s *ExpGolombStream) Encode(in chan int, out chan byte) {
-	for i := range in {
-		s.Add(i, out)
+
+func (s *ExpGolombEncoder) Write(ilist []int) {
+	for _, i := range ilist {
+		s.Add(i)
 	}
-	out <- s.data
-	close(out)
-	s.data = 0
+}
+
+func (s *ExpGolombEncoder) Close() {
+	if (s.bitpos != 0) {
+		s.out.Write([]byte{s.data})
+		s.data = 0
+		s.bitpos = 0
+	}
+	//s.out.Close()
 }
 
 // Decode a byte-stream of exp-golomb coded signed integers.
 // Reads all available bytes from 'in';
 // Emits decoded integers to 'out'.
-func (s *ExpGolombStream) Decode(in chan byte, out chan int) {
-	state := COUNTING_ZEROS
-	val := 0
-	zeros := 0
-	for b := range in {
-		for i := 7; i >= 0; i-- {
-			bit := (b >> uint(i)) & 0x01
-			switch state {
+func (s *ExpGolombDecoder) Read(out []int) (int, error) {
+	cpos := 0
+	n := len(out)
+	tmpbuf := make([]byte, 1)
+
+	for {
+		if (s.nBits == 0) {
+			if s.readError != nil {
+				return cpos, s.readError
+			}
+			nread := 0
+			nread, s.readError = s.r.Read(tmpbuf)
+			if nread == 1 {
+				s.b = tmpbuf[0]
+				s.nBits = 8
+			}
+		}
+		for s.nBits > 0 {
+			if cpos >= n {
+				return cpos, nil
+			}
+			bit := (s.b >> (uint(s.nBits - 1))) & 0x01
+			s.nBits--
+
+			switch s.state {
 			case COUNTING_ZEROS:
 				if bit == 0 {
-					zeros++
+					s.zeros++
 				} else {
-					if zeros == 0 {
-						out <- 0
+					if s.zeros == 0 {
+						out[cpos] = 0
+						cpos++
 					} else {
-						state = SHIFTING_BITS
-						val = 1
+						s.state = SHIFTING_BITS
+						s.val = 1
 					}
 				}
 			case SHIFTING_BITS:
-				val <<= 1
-				val |= int(bit)
-				zeros--
-				if zeros == 0 {
-					val -= 1 // Because we stole bit for 0.
-					state = READING_SIGN
+				s.val <<= 1
+				s.val |= int(bit)
+				s.zeros--
+				if s.zeros == 0 {
+					s.val -= 1 // Because we stole bit for 0.
+					s.state = READING_SIGN
 				}
 			case READING_SIGN:
 				if bit == 1 {
-					val = -val
+					s.val = -s.val
 				}
-				out <- val
-				state = COUNTING_ZEROS
+				out[cpos] = s.val
+				cpos++
+				s.state = COUNTING_ZEROS
 			}
 		}
 	}
 	// If we run off the end, do not emit the value.
-	close(out)
+	return 0, nil // NOTREACHED
 }
 
 // Exponential golomb coding with an explicit sign bit for everything
@@ -119,9 +163,9 @@ func (s *ExpGolombStream) Decode(in chan byte, out chan int) {
 // This function can be used if you don't want to use a channel
 // interface for input and would prefer to call the Add
 // function synchronously.
-func (s *ExpGolombStream) Add(item int, out chan byte) {
+func (s *ExpGolombEncoder) Add(item int) {
 	if item == 0 {
-		s.addBit(1, out)
+		s.addBit(1)
 		return
 	}
 
@@ -136,22 +180,22 @@ func (s *ExpGolombStream) Add(item int, out chan byte) {
 	nbits := uint(bitLen(uitem) - 1)
 	//codelen := nbits * 2 + 1 + 1 // +1 for the separator, +1 for the sign bit.
 	for i := uint(0); i < nbits; i++ {
-		s.addBit(0, out)
+		s.addBit(0)
 	}
-	s.addBit(1, out)
+	s.addBit(1)
 	for i := uint(1); i <= nbits; i++ {
-		s.addBit((uitem>>(nbits-i))&0x01, out)
+		s.addBit((uitem>>(nbits-i))&0x01)
 	}
-	s.addBit(sign, out)
+	s.addBit(sign)
 	return
 }
 
 // Helper function that adds one bit to our output byte stream.
 // Emits the byte if it is full, otherwise just updates internal
 // state.
-func (s *ExpGolombStream) addBit(bit uint, out chan byte) {
+func (s *ExpGolombEncoder) addBit(bit uint) {
 	if s.bitpos == 8 {
-		out <- s.data
+		s.out.Write([]byte{s.data})
 		s.data = 0
 		s.bitpos = 0
 	}
@@ -177,28 +221,18 @@ func bitLen(x uint) (n int) {
 // DeltaEncode uses the value of 'start' to encode the first value
 // as value - start.
 func DeltaEncode(start int, data []int) []byte {
+	bytestream := &bytes.Buffer{}
+	egs := NewExpGolombEncoder(bytestream)
 
-	result := NewExpGolombStream()
-	intchan := make(chan int)
-	bytestream := make(chan byte)
-
-	go result.Encode(intchan, bytestream)
-
-	go func() {
-		prev := start
-		for _, i := range data {
-			delta := i - prev
-			prev = i
-			intchan <- delta
-		}
-		close(intchan)
-	}()
-
-	ret := make([]byte, 0)
-	for b := range bytestream {
-		ret = append(ret, b)
+	prev := start
+	for _, i := range data {
+		delta := i - prev
+		prev = i
+		egs.Write([]int{delta})
 	}
-	return ret
+	egs.Close()
+
+	return bytestream.Bytes()
 }
 
 // Decodes an array of bytes representing an Exp-Golomb encoded
@@ -206,23 +240,19 @@ func DeltaEncode(start int, data []int) []byte {
 // results as an array of integers.
 func DeltaDecode(base int, compressed []byte) []int {
 	res := make([]int, 0)
-	c := make(chan int)
-	bytechan := make(chan byte)
 	val := base
-	decoder := NewExpGolombStream()
+	decoder := NewExpGolombDecoder(bytes.NewBuffer(compressed))
 
-	go func() {
-		for _, b := range compressed {
-			bytechan <- b
+	tmp := make([]int, 1)
+	for {
+		n, err := decoder.Read(tmp)
+		if (n > 0) {
+			val = val+tmp[0]
+			res = append(res, val)
 		}
-		close(bytechan)
-	}()
-
-	go decoder.Decode(bytechan, c)
-
-	for delta := range c {
-		val += delta
-		res = append(res, val)
+		if err != nil {
+			return res
+		}
 	}
-	return res
+	return res // NOTREACHED - compiler doesn't know it.
 }
