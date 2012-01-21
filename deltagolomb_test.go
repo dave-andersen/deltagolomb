@@ -55,13 +55,7 @@ func TestEncodeDecode(t *testing.T) {
 func BenchmarkExpGEncode(b *testing.B) {
 	b.StopTimer()
 	
-	out := make(chan byte)
 	egs := NewExpGolombEncoder(ioutil.Discard)
-	go func() {
-		for _ = range out {
-			// discard
-		}
-	}()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		egs.Write([]int{0, 1, -1, 2, -5})
