@@ -114,9 +114,9 @@ func (s *ExpGolombEncoder) WriteInt(i int) {
 func (s *ExpGolombEncoder) Close() {
 	if (s.bitpos != 0) {
 		s.out.WriteByte(s.data)
-		s.data = 0
-		s.bitpos = 0
 	}
+	s.data = 0
+	s.bitpos = 0
 	s.out.Flush()
 }
 

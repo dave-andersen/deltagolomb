@@ -62,3 +62,33 @@ func BenchmarkExpGEncode(b *testing.B) {
 	}
 	egs.Close()
 }
+
+// Benchmarks decode speed.  Because it resets the buffer
+// and does some other work, this test decodes 200 symbols
+// per iteration, so divde the ns/op by 200 to find
+// the per-symbol cost.
+func BenchmarkExpGDecode(b *testing.B) {
+	b.StopTimer()
+	buf := &bytes.Buffer{}
+	egs := NewExpGolombEncoder(buf)
+	for i := 0; i < 40; i++ {
+		egs.Write([]int{0, 1, -1, 2, -5})
+	}
+	egs.Close()
+
+	bbytes := buf.Bytes()
+	saved_b := make([]byte, len(bbytes))
+	copy(saved_b, bbytes)
+
+	b.StartTimer()
+	res := make([]int, 200)
+	for i := 0; i < b.N; i++ {
+		decoder := NewExpGolombDecoder(buf)
+		n, _ := decoder.Read(res)
+		if n != 200 {
+			b.Fatalf("Expected 200 ints, got %d", n)
+		}
+		buf.Reset()
+		buf.Write(saved_b)
+	}
+}
