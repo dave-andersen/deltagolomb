@@ -32,7 +32,39 @@ func TestEncode(t *testing.T) {
 	}
 }
 
+var cornertests []int = []int{2147483646, -2147483646}
+
 func TestEncodeDecode(t *testing.T) {
+	buf := &bytes.Buffer{}
+	encoder := NewExpGolombEncoder(buf)
+	decoder := NewExpGolombDecoder(buf)
+	n_exhaustive := 65537
+	for i := 0; i < n_exhaustive; i++ {
+		encoder.Write([]int{i})
+	}
+	encoder.Write(cornertests)
+	encoder.Close()
+
+	total_tests := n_exhaustive + len(cornertests)
+	res := make([]int, total_tests)
+	n, _ := decoder.Read(res)
+	if n != total_tests {
+		t.Fatalf("Not enough results.  Expected 65537, got %d\n", n)
+	}
+	for i := 0; i < n_exhaustive; i++ {
+		if res[i] != i {
+			t.Fatalf("item %d was %d, expected %d\n", res[i], i)
+		}
+	}
+	for i := 0; i < len(cornertests); i++ {
+		if res[i+n_exhaustive] != cornertests[i] {
+			t.Fatalf("cornertest %d encoded-decoded to %d\n",
+				cornertests[i], res[i+n_exhaustive])
+		}
+	}
+}
+
+func TestDeltaEncodeDecode(t *testing.T) {
 	o := make([]int, 25)
 	base := 6329
 	for delta := 0; delta < 257; delta++ {
