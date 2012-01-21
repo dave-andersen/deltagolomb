@@ -96,14 +96,19 @@ const (
 	READING_SIGN
 )
 
-// Encode a stream of signed integers into a byte stream.
-// Reads all available ints from 'in';
-// Emits encoded bytes to 'out'
+// Encode a slice of signed integers into a byte stream.
+// Output bytes are buffered and may not be entirely written
+// until the encoder is Close()'d.
 
 func (s *ExpGolombEncoder) Write(ilist []int) {
 	for _, i := range ilist {
-		s.Add(i)
+		s.add(i)
 	}
+}
+
+// Encode a single signed integer into the byte stream.
+func (s *ExpGolombEncoder) WriteInt(i int) {
+	s.add(i)
 }
 
 func (s *ExpGolombEncoder) Close() {
@@ -189,12 +194,22 @@ func (s *ExpGolombDecoder) Read(out []int) (int, error) {
 
 // Add implements the actual encoding of a single value.  Emits
 // zero or more bytes onto the 'out' stream as they are filled.
-// This function can be used if you don't want to use a channel
-// interface for input and would prefer to call the Add
-// function synchronously.
-func (s *ExpGolombEncoder) Add(item int) {
-	if item == 0 {
-		s.addBit(1)
+// Note:  This function is only safe for values up to += 2^31 - 2,
+// not 2^31 - 1 as you might expect.  Rewrite to take uint64s if
+// needed for larger values.
+
+func (s *ExpGolombEncoder) add(item int) {
+	// Quick optimization for the most common values we expect to encode.
+	// This has an obvious generalization to a small table if desired.
+	switch item {
+	case 0:
+		s.addBits(1, 1)
+		return
+	case 1:
+		s.addBits(0x4, 4)
+		return
+	case -1:
+		s.addBits(0x5, 4)
 		return
 	}
 
@@ -207,16 +222,38 @@ func (s *ExpGolombEncoder) Add(item int) {
 	uitem := uint(item)
 	uitem += 1 // we stole a bit for zero.
 	nbits := uint(bitLen(uitem) - 1)
-	//codelen := nbits * 2 + 1 + 1 // +1 for the separator, +1 for the sign bit.
 	s.addZeroBits(nbits)
-	s.addBit(1)
-	for i := uint(1); i <= nbits; i++ {
-		s.addBit((uitem>>(nbits-i))&0x01)
-	}
-	s.addBit(sign)
+	uitem = (uitem << 1) | sign
+	s.addBits(uitem, nbits+2) // +1 high order, +1 sign
 	return
 }
 
+// Helper function that adds nbits bit to the output byte stream.
+// Emits the byte(s) if they are full, otherwise just updates internal
+// state.
+func (s *ExpGolombEncoder) addBits(bits uint, nbits uint) {
+	bitsleft := uint(8) - s.bitpos
+	if nbits < bitsleft {
+		s.data |= (byte(bits) << (bitsleft - nbits))
+		s.bitpos += nbits
+		return
+	} else {
+		s.data |= byte(bits >> (nbits - bitsleft))
+		s.out.WriteByte(s.data)
+		s.bitpos = 0
+		s.data = 0
+		nbits -= bitsleft
+	}
+
+	for ; nbits > 8; nbits -= 8 {
+		s.data = byte((bits >> (nbits - 8)) & 0xff)
+		s.out.WriteByte(s.data)
+	}
+	s.data = byte((bits << (8 - nbits))  & 0xff)
+	s.bitpos = nbits
+}
+
+// Helper function specialized to add zeros to the output stream
 func (s *ExpGolombEncoder) addZeroBits(nzeros uint) {
 	// Split into three chunks:  Number of zeros we can add
 	// to the current byte;  number of intermediate zero bytes
@@ -236,19 +273,6 @@ func (s *ExpGolombEncoder) addZeroBits(nzeros uint) {
 		s.out.WriteByte(s.data)
 	}
 	s.bitpos += nzeros
-}
-
-// Helper function that adds one bit to our output byte stream.
-// Emits the byte if it is full, otherwise just updates internal
-// state.
-func (s *ExpGolombEncoder) addBit(bit uint) {
-	if s.bitpos == 8 {
-		s.out.WriteByte(s.data)
-		s.data = 0
-		s.bitpos = 0
-	}
-	s.data |= (byte(1&bit) << (7 - s.bitpos))
-	s.bitpos++
 }
 
 // Computes the number of bits needed to represent a value.
