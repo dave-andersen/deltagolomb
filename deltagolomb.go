@@ -20,16 +20,16 @@
 package deltagolomb
 
 import (
-	"io"
-	"bytes"
 	"bufio"
+	"bytes"
+	"io"
 )
 
 type ExpGolombDecoder struct {
-	r byteReader
-	b byte
+	r     byteReader
+	b     byte
 	state int
-	val int
+	val   int
 	zeros int
 	nBits int
 }
@@ -37,8 +37,8 @@ type ExpGolombDecoder struct {
 type ExpGolombEncoder struct {
 	data   byte
 	bitpos uint
-	out byteWriter
-}	
+	out    byteWriter
+}
 
 // Create a new Exp-Golomb stream Encoder.
 // Accepts integers via the Write( []int ) method, and writes
@@ -52,7 +52,7 @@ func NewExpGolombEncoder(w io.Writer) *ExpGolombEncoder {
 // Create a new Exp-Golomb stream decoder.  Callers can read
 // decoded integers via the Read( []int ) method.  Reads bytes
 // from r as needed and as they become available.
-func NewExpGolombDecoder(r io.Reader) *ExpGolombDecoder{ 
+func NewExpGolombDecoder(r io.Reader) *ExpGolombDecoder {
 	d := &ExpGolombDecoder{}
 	d.r = makeReader(r)
 	return d
@@ -112,7 +112,7 @@ func (s *ExpGolombEncoder) WriteInt(i int) {
 }
 
 func (s *ExpGolombEncoder) Close() {
-	if (s.bitpos != 0) {
+	if s.bitpos != 0 {
 		s.out.WriteByte(s.data)
 	}
 	s.data = 0
@@ -128,7 +128,7 @@ func (s *ExpGolombDecoder) Read(out []int) (int, error) {
 	n := len(out)
 
 	for {
-		if (s.nBits == 0) {
+		if s.nBits == 0 {
 			var readError error
 			s.b, readError = s.r.ReadByte()
 			if readError != nil {
@@ -249,7 +249,7 @@ func (s *ExpGolombEncoder) addBits(bits uint, nbits uint) {
 		s.data = byte((bits >> (nbits - 8)) & 0xff)
 		s.out.WriteByte(s.data)
 	}
-	s.data = byte((bits << (8 - nbits))  & 0xff)
+	s.data = byte((bits << (8 - nbits)) & 0xff)
 	s.bitpos = nbits
 }
 
@@ -318,8 +318,8 @@ func DeltaDecode(base int, compressed []byte) []int {
 	tmp := make([]int, 1)
 	for {
 		n, err := decoder.Read(tmp)
-		if (n > 0) {
-			val = val+tmp[0]
+		if n > 0 {
+			val = val + tmp[0]
 			res = append(res, val)
 		}
 		if err != nil {

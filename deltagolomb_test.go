@@ -2,8 +2,8 @@ package deltagolomb
 
 import (
 	"bytes"
-	"testing"
 	"io/ioutil"
+	"testing"
 )
 
 type etest struct {
@@ -12,14 +12,14 @@ type etest struct {
 }
 
 var bytetests = []etest{
-	{[]int{0}, []byte{0x80}},           // 0b1000000
-	{[]int{1}, []byte{0x40}},           // 0b0100 0000
-	{[]int{2}, []byte{0x60}},           // 0b0110 0000
-	{[]int{3}, []byte{0x20}},           // 0b001000 00
-	{[]int{6}, []byte{0x38}},           // 0b001110 00
-	{[]int{-6}, []byte{0x3c}},          // 0b001111 00
-	{[]int{0, 0}, []byte{0xc0}},        // 0b1100 0000
-	{[]int{6, 12}, []byte{0x38, 0xe0}}, // 0b0011 1000 1110 0000
+	{[]int{0}, []byte{0x80}},                         // 0b1000000
+	{[]int{1}, []byte{0x40}},                         // 0b0100 0000
+	{[]int{2}, []byte{0x60}},                         // 0b0110 0000
+	{[]int{3}, []byte{0x20}},                         // 0b001000 00
+	{[]int{6}, []byte{0x38}},                         // 0b001110 00
+	{[]int{-6}, []byte{0x3c}},                        // 0b001111 00
+	{[]int{0, 0}, []byte{0xc0}},                      // 0b1100 0000
+	{[]int{6, 12}, []byte{0x38, 0xe0}},               // 0b0011 1000 1110 0000
 	{[]int{65537}, []byte{0x0, 0x0, 0x80, 0x1, 0x0}}, // 0b 00000000 00000000 10000000 0000001 00 {00...}
 }
 
@@ -54,7 +54,7 @@ func TestEncodeDecode(t *testing.T) {
 
 func BenchmarkExpGEncode(b *testing.B) {
 	b.StopTimer()
-	
+
 	egs := NewExpGolombEncoder(ioutil.Discard)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
