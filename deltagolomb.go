@@ -22,6 +22,7 @@ package deltagolomb
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"io"
 )
 
@@ -34,12 +35,13 @@ type ExpGolombDecoder struct {
 	nBits int
 }
 
-const egWordBits = 8
+const egWordBits = 64
 
 type ExpGolombEncoder struct {
-	data     byte
+	data     uint64
 	bitsleft uint
 	out      byteWriter
+	outbuf   []byte
 }
 
 // Create a new Exp-Golomb stream Encoder.
@@ -48,7 +50,7 @@ type ExpGolombEncoder struct {
 // when finished to ensure that all bytes are written to w.
 func NewExpGolombEncoder(w io.Writer) *ExpGolombEncoder {
 	ww := makeWriter(w)
-	return &ExpGolombEncoder{0, egWordBits, ww}
+	return &ExpGolombEncoder{0, egWordBits, ww, make([]byte, 8)}
 }
 
 // Create a new Exp-Golomb stream decoder.  Callers can read
@@ -115,10 +117,8 @@ func (s *ExpGolombEncoder) WriteInt(i int) {
 
 func (s *ExpGolombEncoder) Close() {
 	if s.bitsleft != egWordBits {
-		s.out.WriteByte(s.data)
+		s.emitPartialBits()
 	}
-	s.data = 0
-	s.bitsleft = egWordBits
 	s.out.Flush()
 }
 
@@ -230,27 +230,50 @@ func (s *ExpGolombEncoder) add(item int) {
 	return
 }
 
+func (s *ExpGolombEncoder) emitPartialBits() {
+	var b [8]byte
+	var bs = b[:8]
+	// The slowness here makes me crave an optimized htonll function.
+	binary.BigEndian.PutUint64(bs, s.data)
+	nbytes := ((egWordBits - s.bitsleft) + 7) / 8
+	if nbytes > 0 {
+		s.out.Write(bs[:nbytes])
+	}
+	s.data = 0
+	s.bitsleft = egWordBits
+}
+
+func (s *ExpGolombEncoder) emitBits() {
+	// The overhead of allocating and freeing the outbuf slice
+	// makes it worth pre-allocating in the struct.
+	binary.BigEndian.PutUint64(s.outbuf, s.data)
+	s.out.Write(s.outbuf)
+	s.data = 0
+	s.bitsleft = egWordBits
+}
+
 // Helper function that adds nbits bit to the output byte stream.
 // Emits the byte(s) if they are full, otherwise just updates internal
 // state.
 func (s *ExpGolombEncoder) addBits(bits uint, nbits uint) {
 	if nbits < s.bitsleft {
-		s.data |= (byte(bits) << (s.bitsleft - nbits))
+		s.data |= (uint64(bits) << (s.bitsleft - nbits))
 		s.bitsleft -= nbits
 		return
 	} else {
-		s.data |= byte(bits >> (nbits - s.bitsleft))
-		s.out.WriteByte(s.data)
+		s.data |= uint64(bits >> (nbits - s.bitsleft))
 		nbits -= s.bitsleft
-		s.bitsleft = egWordBits
-		s.data = 0
+		// This next line only matters in the future
+		//bits &= ((1 << nbits)-1) // zero out the bits we just consumed
+		s.emitBits()
 	}
 
-	for ; nbits > egWordBits; nbits -= egWordBits {
-		s.data = byte((bits >> (nbits - egWordBits)) & 0xff)
-		s.out.WriteByte(s.data)
-	}
-	s.data = byte((bits << (egWordBits - nbits)) & 0xff)
+	// This code will never be executed when using 64 bit words.
+	//for ; nbits > egWordBits; nbits -= egWordBits {
+	//	s.data = uint64(bits >> (nbits - egWordBits))
+	//	s.emitBits()
+	//}
+	s.data = uint64(bits) << (egWordBits - nbits)
 	s.bitsleft = egWordBits - nbits
 }
 
@@ -265,13 +288,11 @@ func (s *ExpGolombEncoder) addZeroBits(nzeros uint) {
 		return
 	} else {
 		nzeros -= s.bitsleft
-		s.out.WriteByte(s.data)
-		s.data = 0
-		s.bitsleft = egWordBits
+		s.emitBits()
 	}
 	// We now have a zero byte at bitpos 0.
 	for ; nzeros >= egWordBits; nzeros -= egWordBits {
-		s.out.WriteByte(s.data)
+		s.emitBits()
 	}
 	s.bitsleft -= nzeros
 }

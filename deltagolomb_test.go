@@ -20,6 +20,8 @@ var bytetests = []etest{
 	{[]int{-6}, []byte{0x3c}},                        // 0b001111 00
 	{[]int{0, 0}, []byte{0xc0}},                      // 0b1100 0000
 	{[]int{6, 12}, []byte{0x38, 0xe0}},               // 0b0011 1000 1110 0000
+	{[]int{23}, []byte{0xc, 0x00}},                   // 0b00001100 10000000
+	{[]int{24}, []byte{0xc, 0x80}},                   // 0b00001100 10000000
 	{[]int{65537}, []byte{0x0, 0x0, 0x80, 0x1, 0x0}}, // 0b 00000000 00000000 10000000 0000001 00 {00...}
 }
 
@@ -53,7 +55,7 @@ func TestEncodeDecode(t *testing.T) {
 	}
 	for i := 0; i < n_exhaustive; i++ {
 		if res[i] != i {
-			t.Fatalf("item %d was %d, expected %d\n", res[i], i)
+			t.Fatalf("item %d was %d, expected %d\n", i, res[i], i)
 		}
 	}
 	for i := 0; i < len(cornertests); i++ {
