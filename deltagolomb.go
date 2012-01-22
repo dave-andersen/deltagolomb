@@ -34,10 +34,12 @@ type ExpGolombDecoder struct {
 	nBits int
 }
 
+const egWordBits = 8
+
 type ExpGolombEncoder struct {
-	data   byte
-	bitpos uint
-	out    byteWriter
+	data     byte
+	bitsleft uint
+	out      byteWriter
 }
 
 // Create a new Exp-Golomb stream Encoder.
@@ -46,7 +48,7 @@ type ExpGolombEncoder struct {
 // when finished to ensure that all bytes are written to w.
 func NewExpGolombEncoder(w io.Writer) *ExpGolombEncoder {
 	ww := makeWriter(w)
-	return &ExpGolombEncoder{0, 0, ww}
+	return &ExpGolombEncoder{0, egWordBits, ww}
 }
 
 // Create a new Exp-Golomb stream decoder.  Callers can read
@@ -112,11 +114,11 @@ func (s *ExpGolombEncoder) WriteInt(i int) {
 }
 
 func (s *ExpGolombEncoder) Close() {
-	if s.bitpos != 0 {
+	if s.bitsleft != egWordBits {
 		s.out.WriteByte(s.data)
 	}
 	s.data = 0
-	s.bitpos = 0
+	s.bitsleft = egWordBits
 	s.out.Flush()
 }
 
@@ -232,25 +234,24 @@ func (s *ExpGolombEncoder) add(item int) {
 // Emits the byte(s) if they are full, otherwise just updates internal
 // state.
 func (s *ExpGolombEncoder) addBits(bits uint, nbits uint) {
-	bitsleft := uint(8) - s.bitpos
-	if nbits < bitsleft {
-		s.data |= (byte(bits) << (bitsleft - nbits))
-		s.bitpos += nbits
+	if nbits < s.bitsleft {
+		s.data |= (byte(bits) << (s.bitsleft - nbits))
+		s.bitsleft -= nbits
 		return
 	} else {
-		s.data |= byte(bits >> (nbits - bitsleft))
+		s.data |= byte(bits >> (nbits - s.bitsleft))
 		s.out.WriteByte(s.data)
-		s.bitpos = 0
+		nbits -= s.bitsleft
+		s.bitsleft = egWordBits
 		s.data = 0
-		nbits -= bitsleft
 	}
 
-	for ; nbits > 8; nbits -= 8 {
-		s.data = byte((bits >> (nbits - 8)) & 0xff)
+	for ; nbits > egWordBits; nbits -= egWordBits {
+		s.data = byte((bits >> (nbits - egWordBits)) & 0xff)
 		s.out.WriteByte(s.data)
 	}
-	s.data = byte((bits << (8 - nbits)) & 0xff)
-	s.bitpos = nbits
+	s.data = byte((bits << (egWordBits - nbits)) & 0xff)
+	s.bitsleft = egWordBits - nbits
 }
 
 // Helper function specialized to add zeros to the output stream
@@ -259,20 +260,20 @@ func (s *ExpGolombEncoder) addZeroBits(nzeros uint) {
 	// to the current byte;  number of intermediate zero bytes
 	// we should emit;  number of zeros to add to the new byte
 	// if any.
-	if nzeros < (8 - s.bitpos) {
-		s.bitpos += nzeros
+	if nzeros < s.bitsleft {
+		s.bitsleft -= nzeros
 		return
 	} else {
-		nzeros -= (8 - s.bitpos)
+		nzeros -= s.bitsleft
 		s.out.WriteByte(s.data)
 		s.data = 0
-		s.bitpos = 0
+		s.bitsleft = egWordBits
 	}
 	// We now have a zero byte at bitpos 0.
-	for ; nzeros >= 8; nzeros -= 8 {
+	for ; nzeros >= egWordBits; nzeros -= egWordBits {
 		s.out.WriteByte(s.data)
 	}
-	s.bitpos += nzeros
+	s.bitsleft -= nzeros
 }
 
 // Computes the number of bits needed to represent a value.
