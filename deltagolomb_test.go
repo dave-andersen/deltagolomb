@@ -86,13 +86,15 @@ func TestDeltaEncodeDecode(t *testing.T) {
 	}
 }
 
+var benchvals = []int{0, 1, -1, 2, -5}
+
 func BenchmarkExpGEncode(b *testing.B) {
 	b.StopTimer()
 
 	egs := NewExpGolombEncoder(ioutil.Discard)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		egs.Write([]int{0, 1, -1, 2, -5})
+		egs.Write(benchvals)
 	}
 	egs.Close()
 }
@@ -106,7 +108,7 @@ func BenchmarkExpGDecode(b *testing.B) {
 	buf := &bytes.Buffer{}
 	egs := NewExpGolombEncoder(buf)
 	for i := 0; i < 40; i++ {
-		egs.Write([]int{0, 1, -1, 2, -5})
+		egs.Write(benchvals)
 	}
 	egs.Close()
 
