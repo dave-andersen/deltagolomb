@@ -223,7 +223,7 @@ func (s *ExpGolombEncoder) add(item int) {
 
 	uitem := uint(item)
 	uitem += 1 // we stole a bit for zero.
-	nbits := uint(bitLen(uitem) - 1)
+	nbits := uint(bitLen(uitem)) - 1
 	s.addZeroBits(nbits)
 	uitem = (uitem << 1) | sign
 	s.addBits(uitem, nbits+2) // +1 high order, +1 sign
@@ -299,6 +299,10 @@ func (s *ExpGolombEncoder) addZeroBits(nzeros uint) {
 
 // Computes the number of bits needed to represent a value.
 func bitLen(x uint) (n int) {
+	if x > (1<<31) {
+		x >>= 32
+		n += 32
+	}
 	if x >= 0x8000 {
 		x >>= 16
 		n += 16
