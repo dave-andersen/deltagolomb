@@ -3,6 +3,7 @@ package deltagolomb
 import (
 	"bytes"
 	"io/ioutil"
+	"math/rand"
 	"testing"
 )
 
@@ -62,6 +63,31 @@ func TestEncodeDecode(t *testing.T) {
 		if res[i+n_exhaustive] != cornertests[i] {
 			t.Fatalf("cornertest %d encoded-decoded to %d\n",
 				cornertests[i], res[i+n_exhaustive])
+		}
+	}
+}
+
+func TestEncodeDecodeRandom(t *testing.T) {
+	buf := &bytes.Buffer{}
+	encoder := NewExpGolombEncoder(buf)
+	decoder := NewExpGolombDecoder(buf)
+
+	vals := make([]int, 1025)
+	for i := range vals {
+		vals[i] = rand.Int()
+		encoder.WriteInt(vals[i])
+	}
+	encoder.Close()
+
+	res := make([]int, len(vals))
+	n, _ := decoder.Read(res)
+	if n != len(vals) {
+		t.Fatalf("Not enough results.  Expected %d, got %d\n", len(vals), n)
+	}
+
+	for i, exp := range vals {
+		if res[i] != exp {
+			t.Fatalf("item %d was %d, expected %d\n", i, res[i], exp)
 		}
 	}
 }
