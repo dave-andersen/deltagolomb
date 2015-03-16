@@ -213,6 +213,13 @@ func (s *ExpGolombEncoder) add(item int) {
 	case -1:
 		s.addBits(0x5, 4)
 		return
+	case 2:
+		s.addBits(0x6, 4)
+		return
+	case -2:
+		s.addBits(0x7, 4)
+		return
+
 	}
 
 	sign := uint(0)
